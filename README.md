@@ -4,7 +4,7 @@ This is the repository that we'll be using for our **Comparison of Logistic Regr
 
 ## Welcome!
 
-Hello everyone! This is our **Group Project!** 🚀
+Hello everyone! This is our **Group Project!** 
 
 ## Getting Started
 
@@ -31,3 +31,65 @@ Open **Git Bash** and run the following command:
 
 ```sh
 git clone <paste-the-copied-link-here>
+```
+##### Using Git
+
+Now that you have the repo, to work on it you need to make a new branch.
+
+### Step 1: Navigate to the Project Folder
+```sh
+cd GIT/CS_529_Group_Team_4
+```
+
+### Step 2: Sync with GitHub
+
+When you're in the repo's folder, make sure you're synchronized with the latest version:
+
+```sh
+git fetch origin
+git pull origin main
+```
+
+### Step 3: Create Your Own Branch
+
+After syncing, create your own branch:
+
+```sh
+git checkout -b your-branch-name
+```
+
+Replace `your-branch-name` with something relevant like `feature-login`.
+
+### Step 4: Make Your Changes
+
+You can now make contributions. To commit your changes:
+
+Check what files you changed:
+```sh
+git status
+```
+
+Add the files you want to commit:
+```sh
+git add <filename>
+```
+
+Commit your changes:
+```sh
+git commit -m "Added new feature XYZ"
+```
+
+### Step 5: Push Your Changes to GitHub
+
+If this is your first time pushing a new branch, use:
+```sh
+git push --set-upstream origin your-branch-name
+```
+
+After that, for future pushes on the same branch, you can simply use:
+```sh
+git push
+```
+
+ 
+
