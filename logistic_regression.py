@@ -15,6 +15,9 @@ from sklearn.pipeline import Pipeline
 import warnings
 import shap
 from sklearn.inspection import PartialDependenceDisplay
+from imblearn.over_sampling import SMOTE
+import lime
+import lime.lime_tabular
 warnings.filterwarnings('ignore')
 
 # Load and Prepare Data
@@ -121,6 +124,7 @@ plt.show()
 models = [RandomForestClassifier(), SVC(probability=True), GradientBoostingClassifier()]
 model_names = ['Random Forest', 'SVM', 'Gradient Boosting']
 
+# Train and evaluate other models
 for model, name in zip(models, model_names):
     model.fit(X_train_scaled, y_train)
     y_pred = model.predict(X_test_scaled)
@@ -216,6 +220,54 @@ shap_values = explainer(X_test_scaled)
 
 # Plot SHAP summary
 shap.summary_plot(shap_values, X_test_scaled, feature_names=X.columns)
+
+from sklearn.feature_selection import RFE
+
+# Feature Selection using RFE
+selector = RFE(best_model, n_features_to_select=5, step=1)
+selector = selector.fit(X_train_scaled, y_train)
+selected_features = X.columns[selector.support_]
+print("Selected Features:", selected_features)
+
+# Train models with selected features
+X_train_selected = selector.transform(X_train_scaled)
+X_test_selected = selector.transform(X_test_scaled)
+
+# Ensemble Methods
+ensemble_model = VotingClassifier(estimators=[
+    ('lr', LogisticRegression(max_iter=1000)),
+    ('rf', RandomForestClassifier()),
+    ('svc', SVC(probability=True)),
+    ('gb', GradientBoostingClassifier())
+], voting='soft')
+
+ensemble_model.fit(X_train_selected, y_train)
+y_pred_ensemble = ensemble_model.predict(X_test_selected)
+accuracy_ensemble = accuracy_score(y_test, y_pred_ensemble)
+print('Ensemble Model Accuracy:', accuracy_ensemble)
+
+# Handling Imbalanced Data using SMOTE
+smote = SMOTE(random_state=42)
+X_resampled, y_resampled = smote.fit_resample(X_train_scaled, y_train)
+
+# Train the model with resampled data
+best_model.fit(X_resampled, y_resampled)
+y_pred_smote = best_model.predict(X_test_scaled)
+accuracy_smote = accuracy_score(y_test, y_pred_smote)
+print('SMOTE Model Accuracy:', accuracy_smote)
+
+# Advanced Visualization using Plotly
+import plotly.express as px
+
+fig = px.histogram(data, x='BMI', color='Outcome', title='Distribution of BMI by Outcome')
+fig.show()
+
+# Model Interpretability using LIME
+explainer = lime.lime_tabular.LimeTabularExplainer(X_train_scaled, feature_names=X.columns, class_names=['No Diabetes', 'Diabetes'], verbose=True, mode='classification')
+i = np.random.randint(0, X_test_scaled.shape[0])
+exp = explainer.explain_instance(X_test_scaled[i], best_model.predict_proba, num_features=5)
+exp.show_in_notebook(show_table=True, show_all=False)
+
 # Additional Visualizations
 # Distribution plots for each feature by outcome class
 for column in X.columns:
@@ -225,10 +277,9 @@ for column in X.columns:
     plt.show()
 
 # Partial dependence plots
-from sklearn.inspection import PartialDependenceDisplay
-
 PartialDependenceDisplay.from_estimator(best_model, X_train_scaled, features=[0, 1, 2, 3, 4, 5, 6, 7], feature_names=X.columns)
 plt.show()
+
 # Learning curves
 train_sizes, train_scores, test_scores = learning_curve(best_model, X_train_scaled, y_train, cv=5, n_jobs=-1, train_sizes=np.linspace(0.1, 1.0, 5))
 
