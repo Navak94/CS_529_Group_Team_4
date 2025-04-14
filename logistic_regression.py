@@ -3,11 +3,11 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score, StratifiedKFold, learning_curve
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_curve, roc_auc_score, precision_score, recall_score, f1_score, precision_recall_curve
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_curve, roc_auc_score, precision_score, recall_score, f1_score, precision_recall_curve, matthews_corrcoef
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC
 from sklearn.ensemble import GradientBoostingClassifier
 import joblib
@@ -15,9 +15,11 @@ from sklearn.pipeline import Pipeline
 import warnings
 import shap
 from sklearn.inspection import PartialDependenceDisplay
-from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import SMOTE, ADASYN
 import lime
 import lime.lime_tabular
+import optuna
+import plotly.express as px
 warnings.filterwarnings('ignore')
 
 # Load and Prepare Data
@@ -43,12 +45,17 @@ def perform_eda(data):
 
 perform_eda(data)
 
+# Handling Missing Values
+data.fillna(data.mean(), inplace=True)
+
 # Feature Engineering
 def feature_engineering(data):
     data['BMI_Category'] = pd.cut(data['BMI'], bins=[0, 18.5, 24.9, 29.9, 100], labels=['Underweight', 'Normal', 'Overweight', 'Obese'])
-    return data
+    poly = PolynomialFeatures(degree=2)
+    data_poly = poly.fit_transform(data.drop(['Outcome', 'BMI_Category'], axis=1))
+    return data, data_poly
 
-data = feature_engineering(data)
+data, data_poly = feature_engineering(data)
 
 # Separate features and target variable
 X = data.drop(['Outcome', 'BMI_Category'], axis=1)
@@ -62,26 +69,23 @@ scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
-# Define the parameter grid for hyperparameter tuning
-param_grid = {
-    'C': [0.1, 1, 10, 100],
-    'solver': ['newton-cg', 'lbfgs', 'liblinear', 'sag', 'saga'],
-    'penalty': ['l2'],
-    'class_weight': [None, 'balanced']
-}
+# Automated Hyperparameter Tuning with Optuna
+def objective(trial):
+    C = trial.suggest_loguniform('C', 0.1, 100)
+    solver = trial.suggest_categorical('solver', ['newton-cg', 'lbfgs', 'liblinear', 'sag', 'saga'])
+    model = LogisticRegression(C=C, solver=solver, max_iter=1000)
+    score = cross_val_score(model, X_train_scaled, y_train, cv=5, scoring='accuracy').mean()
+    return score
 
-# Initialize GridSearchCV
-grid_search = GridSearchCV(LogisticRegression(max_iter=1000), param_grid, cv=5, scoring='accuracy')
+study = optuna.create_study(direction='maximize')
+study.optimize(objective, n_trials=100)
+print(study.best_params)
 
-# Fit the model
-grid_search.fit(X_train_scaled, y_train)
-
-# Get the best parameters and score
-print("Best Parameters:", grid_search.best_params_)
-print("Best Score:", grid_search.best_score_)
+# Initialize Logistic Regression with best parameters
+best_model = LogisticRegression(**study.best_params, max_iter=1000)
+best_model.fit(X_train_scaled, y_train)
 
 # Use the best model to make predictions
-best_model = grid_search.best_estimator_
 y_pred = best_model.predict(X_test_scaled)
 
 # Evaluate the Model
@@ -96,10 +100,12 @@ def evaluate_model(y_test, y_pred):
     recall = recall_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred)
     roc_auc = roc_auc_score(y_test, y_pred)
+    mcc = matthews_corrcoef(y_test, y_pred)
     print('Precision: {}'.format(precision))
     print('Recall: {}'.format(recall))
     print('F1 Score: {}'.format(f1))
     print('ROC AUC: {}'.format(roc_auc))
+    print('Matthews Correlation Coefficient: {}'.format(mcc))
     return cm
 
 cm = evaluate_model(y_test, y_pred)
@@ -220,10 +226,8 @@ shap_values = explainer(X_test_scaled)
 
 # Plot SHAP summary
 shap.summary_plot(shap_values, X_test_scaled, feature_names=X.columns)
-
-from sklearn.feature_selection import RFE
-
 # Feature Selection using RFE
+from sklearn.feature_selection import RFE
 selector = RFE(best_model, n_features_to_select=5, step=1)
 selector = selector.fit(X_train_scaled, y_train)
 selected_features = X.columns[selector.support_]
@@ -240,7 +244,6 @@ ensemble_model = VotingClassifier(estimators=[
     ('svc', SVC(probability=True)),
     ('gb', GradientBoostingClassifier())
 ], voting='soft')
-
 ensemble_model.fit(X_train_selected, y_train)
 y_pred_ensemble = ensemble_model.predict(X_test_selected)
 accuracy_ensemble = accuracy_score(y_test, y_pred_ensemble)
@@ -256,9 +259,17 @@ y_pred_smote = best_model.predict(X_test_scaled)
 accuracy_smote = accuracy_score(y_test, y_pred_smote)
 print('SMOTE Model Accuracy:', accuracy_smote)
 
-# Advanced Visualization using Plotly
-import plotly.express as px
+# Handling Imbalanced Data using ADASYN
+adasyn = ADASYN(random_state=42)
+X_resampled_adasyn, y_resampled_adasyn = adasyn.fit_resample(X_train_scaled, y_train)
 
+# Train the model with ADASYN resampled data
+best_model.fit(X_resampled_adasyn, y_resampled_adasyn)
+y_pred_adasyn = best_model.predict(X_test_scaled)
+accuracy_adasyn = accuracy_score(y_test, y_pred_adasyn)
+print('ADASYN Model Accuracy:', accuracy_adasyn)
+
+# Advanced Visualization using Plotly
 fig = px.histogram(data, x='BMI', color='Outcome', title='Distribution of BMI by Outcome')
 fig.show()
 
