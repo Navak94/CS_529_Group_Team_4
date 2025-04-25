@@ -82,7 +82,7 @@ warnings.filterwarnings("ignore")
 plt.style.use("seaborn-v0_8")
 sns.set_palette("husl")
 pd.set_option("display.max_columns", 50)
-
+np.random.seed(42)
 
 ##---------------------------
 ## SECTION 1: DATA LOADING AND EXPLORATORY DATA ANALYSIS
@@ -192,3 +192,87 @@ df["Glucose_Insulin_Interaction"] = df["Glucose"] * np.log1p(df["Insulin"])
 discretizer = KBinsDiscretizer(n_bins=5, encode="ordinal", strategy="quantile")
 df["Age_Group"] = discretizer.fit_transform(df[["Age"]]).astype(int)
 df["BMI_Category"] = discretizer.fit_transform(df[["BMI"]]).astype(int)
+
+# 2.2 Outlier Detection and Treatment
+print("\n🔍 OUTLIER DETECTION AND TREATMENT")
+print("-" * 50)
+
+
+def modified_zscore(series):
+    median = np.median(series)
+    mad = np.median(np.abs(series - median))
+    return 0.6745 * (series - median) / mad
+
+
+outlier_report = {}
+numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+
+for col in numeric_cols:
+    z_scores = modified_zscore(df[col])
+    outliers = np.abs(z_scores) > 3.5
+    outlier_report[col] = {
+        "outlier_count": sum(outliers),
+        "outlier_percentage": sum(outliers) / len(df) * 100,
+        "treatment": "Winsorized",
+    }
+    # Winsorization
+    q1, q3 = df[col].quantile([0.05, 0.95])
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    df[col] = df[col].clip(lower, upper)
+
+print(pd.DataFrame(outlier_report).T)
+
+## --------------------------
+## SECTION 3: DATA PREPROCESSING
+## --------------------------
+print("\n" + "=" * 80)
+print("SECTION 3: DATA PREPROCESSING")
+print("=" * 80 + "\n")
+
+# 3.1 Feature/ Target Separation
+X = df.drop("Outcome", axis=1)
+y = df["Outcome"]
+
+# 3.2 Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
+
+# 3.3 Advanced Preprocessing Pipeline
+print("⚙️ BUILDING PREPROCESSING PIPELINE")
+print("-" * 50)
+
+# Define Column Groups
+numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+discrete_features = ["Age_Group", "BMI_Category"]
+
+# Create Transformers
+numeric_transformer = Pipeline(
+    steps=[
+        ("scaler", RobustScaler()),
+        ("power", PowerTransformer(method="yeo-johnson")),
+    ]
+)
+
+discrete_transformer = Pipeline(steps=[("scaler", RobustScaler())])
+
+# Combine preprocessing
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("num", numeric_transformer, numeric_features),
+        ("disc", discrete_transformer, discrete_features),
+    ]
+)
+
+# 3.4 Feature Selection
+print("\n🔍 PERFORMING FEATURE SELECTION")
+print("-" * 50)
+
+# Fit Preprocessor
+X_train_preprocessed = preprocessor.fit_transform(X_train)
+
+# Mutual Information
+mi_scores = mutual_info_classif(X_train_preprocessed, y_train)
+mi_features = pd.Series(mi_scores, index=X.columns, name="MI Scores")
