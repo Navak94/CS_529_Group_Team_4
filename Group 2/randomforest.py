@@ -60,6 +60,8 @@ from sklearn.feature_selection import (
     f_classif,
 )
 from sklearn.decomposition import PCA
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from imblearn.over_sampling import SMOTE, ADASYN
@@ -94,6 +96,28 @@ print("=" * 80 + "\n")
 # Load Dataset
 desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", "diabetes.csv")
 df = pd.read_csv(desktop_path)
+
+
+# Add this right after loading the data (line ~94)
+def clean_data(df):
+    """Handle infinite/too-large values while preserving structure"""
+    original_cols = df.columns
+    df = df.replace([np.inf, -np.inf], np.nan)
+
+    # Clip extreme values without dropping rows/columns
+    numeric_cols = df.select_dtypes(include=np.number).columns
+    for col in numeric_cols:
+        if df[col].abs().max() > 1e6:
+            q1 = df[col].quantile(0.01)
+            q99 = df[col].quantile(0.99)
+            df[col] = df[col].clip(lower=q1, upper=q99)
+
+    # Fill any remaining NaNs with column means
+    df = df.fillna(df.mean())
+    return df[original_cols]  # Ensure same column order
+
+
+df = clean_data(df)
 
 # 1.1 Basic Dataset Info
 print("📊 BASIC DATASET INFORMATION")
@@ -245,34 +269,142 @@ print("⚙️ BUILDING PREPROCESSING PIPELINE")
 print("-" * 50)
 
 # Define Column Groups
+all_features = X.columns.tolist()
 numeric_features = X.select_dtypes(include=np.number).columns.tolist()
 discrete_features = ["Age_Group", "BMI_Category"]
+
+# Verify we haven't missed any features
+missing_features = set(all_features) - set(numeric_features + discrete_features)
+if missing_features:
+    print(f"⚠️ Warning: These features are unprocessed: {missing_features}")
+    # Either add them to appropriate groups or drop them
+    numeric_features.extend(missing_features)  # Adding to numeric as default
 
 # Create Transformers
 numeric_transformer = Pipeline(
     steps=[
+        ("imputer", SimpleImputer(strategy="median")),
         ("scaler", RobustScaler()),
-        ("power", PowerTransformer(method="yeo-johnson")),
+        ("transformer", PowerTransformer()),
     ]
 )
 
-discrete_transformer = Pipeline(steps=[("scaler", RobustScaler())])
+discrete_transformer = Pipeline(
+    steps=[
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("scaler", RobustScaler()),
+    ]
+)
 
 # Combine preprocessing
 preprocessor = ColumnTransformer(
     transformers=[
         ("num", numeric_transformer, numeric_features),
         ("disc", discrete_transformer, discrete_features),
-    ]
+    ],
+    remainder="drop",
 )
 
 # 3.4 Feature Selection
 print("\n🔍 PERFORMING FEATURE SELECTION")
 print("-" * 50)
 
-# Fit Preprocessor
-X_train_preprocessed = preprocessor.fit_transform(X_train)
 
-# Mutual Information
-mi_scores = mutual_info_classif(X_train_preprocessed, y_train)
-mi_features = pd.Series(mi_scores, index=X.columns, name="MI Scores")
+def safe_feature_selection(X, y, preprocessor, feature_names):
+    """Handle any remaining issues during transform"""
+    try:
+        X_clean = clean_data(X)
+        X_processed = preprocessor.fit_transform(X_clean)
+
+        # verify dimensions
+        if X_processed.shape[1] != len(feature_names):
+            raise ValueError(
+                f"Preprocessing created {X_processed.shape[1]} features, "
+                f"expected {len(feature_names)}. "
+                "Check your feature groups."
+            )
+        # Calculate feature importance
+        mi_scores = mutual_info_classif(X_processed, y)
+        f_scores, _ = f_classif(X_processed, y)
+
+        return pd.DataFrame(
+            {"Feature": feature_names, "MI_Score": mi_scores, "F_Score": f_scores}
+        ).sort_values("MI_Score", ascending=False)
+    except Exception as e:
+        print(f"❌ Feature selection failed: {str(e)}")
+        raise
+
+
+# # Mutual Information
+# mi_scores = mutual_info_classif(X_train_preprocessed, y_train)
+# mi_features = pd.Series(mi_scores, index=X.columns, name="MI Scores")
+
+# # ANOVA F-test
+# f_scores, _ = f_classif(X_train_preprocessed, y_train)
+# f_features = pd.Series(f_scores, index=X.columns, name="F Scores")
+
+
+# def validate_shapes(X, X_transformed, original_columns):
+#     """Ensure preprocessing maintains expected structure"""
+#     if X_transformed.shape[1] != len(original_columns):
+#         print(
+#             f"⚠️ Warning: Preprocessing changed feature count from {len(original_columns)} to {X_transformed.shape[1]}"
+#         )
+#         # Handle mismatch (here we'll use column subsetting)
+#         return X_transformed[:, : len(original_columns)]  # First n columns
+#     return X_transformed
+
+
+# # Usage:
+# X_train_preprocessed = validate_shapes(X_train, X_train_preprocessed, X.columns)
+
+# # Plot feature importance
+# plt.figure(figsize=(15, 6))
+# plt.subplot(1, 2, 1)
+# mi_features.sort_values().plot(kind="barh")
+# plt.title("Mutual Information Scores")
+
+# plt.subplot(1, 2, 2)
+# f_features.sort_values().plot(kind="barh")
+# plt.title("ANOVA F-Scores")
+# plt.tight_layout()
+# plt.show()
+
+# Run feature selection
+feature_importance_df = safe_feature_selection(
+    X_train, y_train, preprocessor, numeric_features + discrete_features
+)
+
+# Display results
+print("\nTop 10 Features:")
+print(feature_importance_df.head(10))
+
+# Select top features
+selected_features = feature_importance_df["Feature"].head(10).tolist()
+print(f"Selected Fetaures: {selected_features}")
+
+# Plot feature importance
+plt.figure(figsize=(12, 8))
+sns.barplot(data=feature_importance_df.head(15), y="Feature", x="MI_Score")
+plt.title("Top 15 Features by Mutual Information")
+plt.tight_layout()
+plt.show()
+
+## --------------------------
+## SECTION 4: MODEL DEVELOPMENT
+## --------------------------
+print("\n" + "=" * 80)
+print("SECTION 4: MODEL DEVELOPMENT")
+print("=" * 80 + "\n")
+
+# 4.1 Handle Class Imbalance
+print("⚖️ HANDLING CLASS IMBALANCE")
+print("-" * 50)
+
+# Apply SMOTE-Tomek
+smote_tomek = SMOTETomek(sampling_strategy="auto", random_state=42)
+X_res, y_res = smote_tomek.fit_resample(X_train[selected_features], y_train)
+
+print(
+    f"Class distribution after resampling: {pd.Series(y_res).value_counts(normalize=True)}"
+)
