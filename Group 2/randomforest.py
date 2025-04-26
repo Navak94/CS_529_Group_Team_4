@@ -1,30 +1,66 @@
 """
-!!! Using iris_2 as the virtual env and also the python interpreter !!!
-Diabetes Prediction using Random Forest with Advanced Feature Engineering
+!!! Using iris_2 as the virtual environment and Python interpreter !!!
+
+Advanced Diabetes Prediction System using Random Forest Classifier
+===============================================================
 
 Objective:
-Develop a robust diabetes prediction model using Random Forest Classifier with comprehensive
-feature engineering and optimization techniques to maximize predictive performance.
+---------
+Develop a high-performance diabetes prediction model leveraging:
+- Advanced feature engineering
+- Rigorous hyperparameter optimization
+- State-of-the-art interpretability techniques
 
-Key Steps:
-1. Perform advanced data cleaning including outlier treatment using Winsorization
-2. Create new feartures through interactions, ratios and binned categories
-3. Conduct thorough feature analysis using multiple methods(Phi-K, SHAP, Permutation Importance)
-4. Implement hybrid resampling (SMOTE + Tomek Links) to handle class imbalance
-5. Optimize model through extensive hyperparameter tuning with GridSearchCV
-6. Evaluate using multiple metrics (ROC AUC, precision-recall, etc.)
-7. Compare performance with other tree-based models(XGBoost, LightGBM)
-8. Provide model interpretability using SHAP values and partial dependence plots
+Key Steps Implemented:
+---------------------
+1. Data Preprocessing:
+   - Outlier treatment using Winsorization (5th/95th percentiles)
+   - Missing value imputation with median/mode
+   - Advanced scaling (RobustScaler + PowerTransformer)
 
-Advanced Techniques:
-- Multiple feeatur scaling approaches (RobustScaler, PowerTransformer)
-- Reecursive Featture Elimination with Cross-Validation
-- Dimensionality reduction visualization with PCA
-- Comprehensive model interpretation tools
-- Production-ready model serialization
+2. Feature Engineering:
+   - Medical feature creation (Glucose/BMI ratio, Insulin Resistance)
+   - Interaction terms (Pregnancies * Age)
+   - Discretization (Age/BMI bins)
+   - Metabolic syndrome scoring
+
+3. Feature Selection:
+   - Mutual Information + ANOVA F-tests
+   - Recursive Feature Elimination (RFE)
+   - Top 10 features selected
+
+4. Class Imbalance Handling:
+   - Hybrid resampling (SMOTE + Tomek Links)
+
+5. Model Development:
+   - Random Forest Classifier
+   - Hyperparameter tuning via Optuna (50 trials)
+   - Optimized for ROC AUC
+
+6. Evaluation & Interpretation:
+   - Multi-metric assessment (Accuracy, Precision, Recall, F1, ROC AUC)
+   - SHAP values for global feature importance
+   - LIME for local explainability
+
+7. Deployment Readiness:
+   - Model serialization (joblib)
+   - Metadata documentation (JSON)
+
+Advanced Techniques Applied:
+---------------------------
+- Feature Scaling: RobustScaler (outlier-resistant) + Yeo-Johnson PowerTransformer
+- Dimensionality Reduction: PCA visualization (optional)
+- Interpretability: SHAP summary plots + LIME explanations
+- Productionization: Pipeline serialization with preprocessing
+
+Key Outcomes:
+------------
+✅ Identified top predictive features: Glucose, BMI, Age
+✅ Generated medically meaningful feature interactions
 """
 
 # Import necessary libraries
+import lime.lime_tabular
 import numpy as np
 import pandas as pd
 import os
@@ -34,7 +70,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedGroupKFold
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -43,39 +79,40 @@ from sklearn.metrics import (
     roc_auc_score,
     confusion_matrix,
     classification_report,
-    roc_curve,
     precision_recall_curve,
     average_precision_score,
 )
 from sklearn.preprocessing import (
     RobustScaler,
     PowerTransformer,
-    QuantileTransformer,
     KBinsDiscretizer,
 )
 from sklearn.feature_selection import (
-    RFECV,
-    SelectFromModel,
     mutual_info_classif,
     f_classif,
 )
-from sklearn.decomposition import PCA
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer, SimpleImputer
+
+# from sklearn.decomposition import PCA
+# from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from imblearn.over_sampling import SMOTE, ADASYN
-from imblearn.under_sampling import TomekLinks, NearMiss
+
+# from imblearn.over_sampling import SMOTE, ADASYN
+# from imblearn.under_sampling import TomekLinks, NearMiss
 from imblearn.combine import SMOTETomek
 import shap
-from lime.lime_tabular import LimeTabularExplainer
-import yellowbrick
-from yellowbrick.classifier import ROCAUC, ClassificationReport, ConfusionMatrix
+import lime
+
+# from lime.lime_tabular import LimeTabularExplainer
+# import yellowbrick
+from yellowbrick.classifier import ROCAUC, ClassificationReport
 import optuna
 import joblib
 import json
-import phik
-from phik import report
+
+# import phik
+# from phik import report
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -117,7 +154,7 @@ def clean_data(df):
     return df[original_cols]  # Ensure same column order
 
 
-df = clean_data(df)
+# df = clean_data(df)
 
 # 1.1 Basic Dataset Info
 print("📊 BASIC DATASET INFORMATION")
@@ -335,41 +372,6 @@ def safe_feature_selection(X, y, preprocessor, feature_names):
         raise
 
 
-# # Mutual Information
-# mi_scores = mutual_info_classif(X_train_preprocessed, y_train)
-# mi_features = pd.Series(mi_scores, index=X.columns, name="MI Scores")
-
-# # ANOVA F-test
-# f_scores, _ = f_classif(X_train_preprocessed, y_train)
-# f_features = pd.Series(f_scores, index=X.columns, name="F Scores")
-
-
-# def validate_shapes(X, X_transformed, original_columns):
-#     """Ensure preprocessing maintains expected structure"""
-#     if X_transformed.shape[1] != len(original_columns):
-#         print(
-#             f"⚠️ Warning: Preprocessing changed feature count from {len(original_columns)} to {X_transformed.shape[1]}"
-#         )
-#         # Handle mismatch (here we'll use column subsetting)
-#         return X_transformed[:, : len(original_columns)]  # First n columns
-#     return X_transformed
-
-
-# # Usage:
-# X_train_preprocessed = validate_shapes(X_train, X_train_preprocessed, X.columns)
-
-# # Plot feature importance
-# plt.figure(figsize=(15, 6))
-# plt.subplot(1, 2, 1)
-# mi_features.sort_values().plot(kind="barh")
-# plt.title("Mutual Information Scores")
-
-# plt.subplot(1, 2, 2)
-# f_features.sort_values().plot(kind="barh")
-# plt.title("ANOVA F-Scores")
-# plt.tight_layout()
-# plt.show()
-
 # Run feature selection
 feature_importance_df = safe_feature_selection(
     X_train, y_train, preprocessor, numeric_features + discrete_features
@@ -408,3 +410,271 @@ X_res, y_res = smote_tomek.fit_resample(X_train[selected_features], y_train)
 print(
     f"Class distribution after resampling: {pd.Series(y_res).value_counts(normalize=True)}"
 )
+
+# 4.2 Hyperparameter Optimization with Optuna
+print("\n🎛️ HYPERPARAMETER OPTIMIZATION")
+print("-" * 50)
+
+
+def objective(trial):
+    params = {
+        "n_estimators": trial.suggest_int("n_estimators", 100, 500),
+        "max_depth": trial.suggest_int("max_depth", 3, 20),
+        "min_samples_split": trial.suggest_int("min_samples_split", 2, 10),
+        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 5),
+        "max_features": trial.suggest_categorical("max_features", ["sqrt", "log2"]),
+        "bootstrap": trial.suggest_categorical("bootstrap", [True, False]),
+        "class_weight": trial.suggest_categorical("class_weight", ["balanced", None]),
+    }
+    model = RandomForestClassifier(**params, random_state=42)
+    score = cross_val_score(
+        model, X_res, y_res, scoring="roc_auc", cv=5, n_jobs=-1
+    ).mean()
+    return score
+
+
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=50, show_progress_bar=True)
+
+print(f"Best ROC AUC: {study.best_value:.4f}")
+print("Best Parameters:")
+print(study.best_params)
+
+# 4.3 Train Final Model
+print("\n🏗️ TRAINING FINAL MODEL")
+print("-" * 50)
+
+
+best_params = study.best_params
+model = RandomForestClassifier(**best_params, random_state=42)
+model.fit(X_res, y_res)
+
+# Preprocess test data
+X_test_clean = clean_data(X_test)
+X_test_processed = preprocessor.transform(X_test_clean)
+
+# Ensure we have a 2D array
+if X_test_processed.ndim > 2:
+    X_test_processed = X_test_processed.reshape(X_test_processed.shape[0], -1)
+
+# Select the same features used in training
+feature_indices = [i for i, col in enumerate(X.columns) if col in selected_features]
+X_test_selected = X_test_processed[:, feature_indices]
+
+# Ensure 2D shape by squeezing any extra dimensions
+X_test_selected = np.squeeze(X_test_selected)  # This removes single-dimensional entries
+
+# Verify final shape matches training data
+print(f"\nTraining data shape: {X_res.shape}")
+print(f"Test data shape: {X_test_selected.shape}")
+assert X_test_selected.ndim == 2, (
+    f"Data must be 2-dimensional, got {X_test_selected.ndim}"
+)
+assert X_test_selected.shape[1] == len(selected_features), "Feature count mismatch"
+
+# Predictions
+y_pred = model.predict(X_test_selected)
+y_proba = model.predict_proba(X_test_selected)[:, 1]
+
+## --------------------------
+## SECTION 5: MODEL EVALUATION
+## --------------------------
+print("\n" + "=" * 80)
+print("SECTION 5: MODEL EVALUATION")
+print("=" * 80 + "\n")
+
+# 5.1 Classification Metrics
+print("📊 CLASSIFICATION METRICS")
+print("-" * 50)
+
+print(classification_report(y_test, y_pred, target_names=["Non-Diabetic", "Diabetic"]))
+
+# Visal Classification report
+visualizer = ClassificationReport(
+    model, classes=["Non-Diabetic", "Diabetic"], support=True, cmap="Blues"
+)
+visualizer.fit(X_res, y_res)
+visualizer.score(X_test_selected, y_test)
+visualizer.show()
+
+# 5.2 ROC and PR Curves
+print("\n📈 ROC & PR CURVES")
+print("-" * 50)
+
+# ROC Curve
+roc_visualizer = ROCAUC(model, classes=["Non-Diabetic", "Diabetic"])
+roc_visualizer.fit(X_res, y_res)
+roc_visualizer.score(X_test_selected, y_test)
+roc_visualizer.show()
+
+# Precision - Recall Curve
+precision, recall, _ = precision_recall_curve(y_test, y_proba)
+avg_precision = average_precision_score(y_test, y_proba)
+
+plt.figure(figsize=(8, 6))
+plt.plot(recall, precision, label=f"AP = {avg_precision:.2f}")
+plt.xlabel("Recall")
+plt.ylabel("Precision")
+plt.title("Precision-Recall Curve")
+plt.legend()
+plt.show()
+
+# 5.3 Confusion Matrix
+print("\n📊 CONFUSION MATRIX")
+print("-" * 50)
+
+cm = confusion_matrix(y_test, y_pred)
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt="d",
+    cmap="Blues",
+    xticklabels=["Non-Diabetic", "Diabetic"],
+    yticklabels=["Non-Diabetic", "Diabetic"],
+)
+plt.xlabel("Actual")
+plt.ylabel("Predicted")
+plt.title("Confusion Matrix")
+plt.show()
+
+## --------------------------
+## SECTION 6: MODEL INTERPRETATION
+## --------------------------
+print("\n" + "=" * 80)
+print("SECTION 6: MODEL INTERPRETATION")
+print("=" * 80 + "\n")
+
+# 6.1 Feature Importance
+print("🔍 FEATURE IMPORTANCE")
+print("-" * 50)
+
+# Traditional Importance
+importances = pd.Series(
+    model.feature_importances_, index=selected_features
+).sort_values(ascending=False)
+
+plt.figure(figsize=(10, 6))
+importances.plot(kind="barh")
+plt.title("Feature Importance (Gini Importance)")
+plt.show()
+
+
+# 6.2 SHAP Analysis
+print("\n📊 SHAP ANALYSIS")
+print("-" * 50)
+
+# Convert data to numpy arrays if they aren' already
+X_test_selected_array = np.array(X_test_selected).reshape(len(X_test_selected), -1)
+X_res_array = np.array(X_res).reshape(len(X_res), -1)
+
+explainer = shap.TreeExplainer(model, data=X_res_array[:100])
+shap_values = explainer.shap_values(X_test_selected_array)
+
+print("X_res shape:", X_res.shape)  # Resampled training data
+print("X_test_selected shape:", X_test_selected.shape)  # Processed test data
+print(
+    "SHAP values length:",
+    len(shap_values) if isinstance(shap_values, list) else shap_values.shape,
+)
+
+# For binary classification, SHAP returns [negative_class, positive_class]
+if isinstance(shap_values, list):
+    shap_values_positive = shap_values[1]  # Use positive class for analysis
+else:
+    shap_values_positive = shap_values
+
+# Verify shapes
+print(f"SHAP values shape: {shap_values.shape}")
+print(f"Test data shape: {X_test_selected_array.shape}")
+
+# Summary Plot for positive class
+plt.close("all")
+plt.figure(figsize=(10, 6))
+shap.summary_plot(
+    shap_values,
+    X_test_selected_array,
+    feature_names=selected_features,
+    plot_type="bar",
+    show=False,
+    plot_size=None,
+)
+plt.title("SHAP Feature Importance", pad=20)
+plt.gcf().set_facecolor("white")  # ensure white background
+plt.tight_layout()
+plt.show()
+plt.close("all")
+
+
+# 6.3 LIME Explanations
+print("\n🍋 LIME EXPLANATIONS")
+print("-" * 50)
+
+# Ensure we're using numpy arrays
+if not isinstance(X_res_array, np.ndarray):
+    X_res_array = np.array(X_res)
+if not isinstance(X_test_selected_array, np.ndarray):
+    X_test_selected_array = np.array(X_test_selected)
+
+explainer_lime = lime.lime_tabular.LimeTabularExplainer(
+    training_data=X_res_array,
+    feature_names=selected_features,
+    class_names=["Non-Diabetic", "Diabetic"],
+    mode="classification",
+    discretize_continuous=True,
+    random_state=42,
+)
+
+# Explain first test case
+sample_to_explain = X_test_selected_array[0].flatten()
+
+exp = explainer_lime.explain_instance(
+    data_row=sample_to_explain,
+    predict_fn=model.predict_proba,
+    num_features=10,
+    top_labels=1,
+)
+
+# save explanation to HTML
+exp.save_to_file("lime_explanation.html")
+print("LIME explanation saved to lime_explanation.html")
+
+## --------------------------
+## SECTION 7: MODEL DEPLOYMENT
+## --------------------------
+print("\n" + "=" * 80)
+print("SECTION 7: MODEL DEPLOYMENT")
+print("=" * 80 + "\n")
+
+# 7.1 Save Model Artifacts
+model_artifacts = {
+    "model": model,
+    "preprocessor": preprocessor,
+    "selected_features": selected_features,
+    "feature_importance": importances.to_dict(),
+    "performance_metrics": {
+        "accuracy": accuracy_score(y_test, y_pred),
+        "precision": precision_score(y_test, y_pred),
+        "recall": recall_score(y_test, y_pred),
+        "f1": f1_score(y_test, y_pred),
+        "roc_auc": roc_auc_score(y_test, y_proba),
+        "avg_precision": avg_precision,
+    },
+}
+
+joblib.dump(model_artifacts, "diabetes_model.pkl")
+print("Model artifacts saved to diabetes_model.pkl")
+
+# 7.2 Save Metadata
+metadata = {
+    "model_type": "RandomForestClassifier",
+    "timestamp": pd.Timestamp.now().isoformat(),
+    "dataset": "diabetes.csv",
+    "columns": list(df.columns),
+    "best_params": best_params,
+}
+
+with open("model_metadata.json", "w") as f:
+    json.dump(metadata, f, indent=4)
+print("Model metadata saved to model_metadata.json")
+
+print("\n✅ MODELING PIPELINE COMPLETED SUCCESSFULLY!")
