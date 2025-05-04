@@ -7,6 +7,10 @@ Hello everyone! This is the folder for **Group 1**.
 ## Getting Started
 
 For our project, we're going to be using the yfinance dataset and experimenting with different methods to predict stock trends.
+First run pip install yfinance pandas
+
+
+If you haven't install seaborn then run: pip install seaborn to 
 
 ###  Examples
 
