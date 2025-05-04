@@ -7,7 +7,7 @@ import pandas as pd
 #########################################################
 
 # open our Json file in the group 1 folder
-with open("Group 1/companies.json", "r") as file:
+with open("companies.json", "r") as file:
     data = json.load(file)
 
 #make a list with all of the company symbols
@@ -41,7 +41,7 @@ for i in range(date_count):
         data = yf.download(stock_symbol, start=start_date, end=end_date)
 
         # im just putting all of these csv files in the examples folder 
-        output_path = "Group 1/Example_output/" + companies[x] + "start_date_" +start_date_json[i] + "_" + "end_date" + end_date_json[i] + ".csv"
+        output_path = "Example_output/" + companies[x] + "start_date_" +start_date_json[i] + "_" + "end_date" + end_date_json[i] + ".csv"
 
         data.to_csv(output_path)
         print(f"saved to " + companies[x] + "start_date_" +start_date_json[i] + "_" + "end_date" + end_date_json[i] + ".csv")
@@ -58,9 +58,7 @@ for i in range(date_count):
 
         # going to cut out the "ticker" line since we dont want that
         del lines[1]
-
-        # have to do it again to remove the redundant empty "dates" row since we just deleted row 1
-        # the other row we dont want is now the new row 1, so we delete row 1 again
+        
         del lines[1]
 
         #let's put the stock name at the top of the file so it's easier for us to identify which stock we're looking at

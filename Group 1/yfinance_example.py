@@ -55,7 +55,7 @@ del lines[1]
 
 #let's put the stock name at the top of the file so it's easier for us to identify which stock we're looking at
 # this is OPTIONAL, but i do this to make things less confusing
-lines.insert(0, "stock: " + stock_symbol + "\n")
+#lines.insert(0, "stock: " + stock_symbol + "\n")
 
 #re-write without the line we don't want and with that date fix
 with open(output_path, "w") as file:
